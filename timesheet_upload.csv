@@ -1,6 +1,4 @@
-artist_id,date,hours_worked,role
-101,2025-10-25,8,Performer
-102,2025-10-25,9,Stunt
-103,2025-10-25,7,Background
-104,2025-10-26,10,Performer
-105,2025-10-26,6,Background
+artist_id,role,hours_worked,is_holiday,is_hazard
+101,Performer,9,TRUE,FALSE
+102,Stunt,12,FALSE,TRUE
+103,Background,10,FALSE,FALSE
