@@ -212,11 +212,12 @@ def generate_deal_memo(artist_id: int):
         return {"error": str(e)}
 
 # =====================================================
-# 🤖 AI Assistant (LangChain + OpenAI — Final FIX)
+# 🤖 AI Assistant (LangChain + OpenAI — Final FIXED VERSION)
 # =====================================================
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
+from pydantic import BaseModel
 import os
 
 # ✅ Load .env file
@@ -227,10 +228,11 @@ api_key = os.getenv("OPENAI_API_KEY")
 org_id = os.getenv("OPENAI_ORG_ID")
 project_id = os.getenv("OPENAI_PROJECT_ID")
 
+# 🚨 Validate key
 if not api_key:
     raise ValueError("❌ OPENAI_API_KEY missing in .env file")
 
-# ✅ Set environment variables (no `project` arg in code)
+# ✅ Set environment variables for SDK
 os.environ["OPENAI_API_KEY"] = api_key
 if org_id:
     os.environ["OPENAI_ORG_ID"] = org_id
@@ -239,10 +241,12 @@ if project_id:
 
 print("✅ Loaded OpenAI API key:", api_key[:15], "********")
 
-# ✅ Initialize ChatOpenAI (no unsupported arguments)
+# ✅ Initialize ChatOpenAI
+# (Passing API key explicitly fixes the 401 + project argument issues)
 llm = ChatOpenAI(
     model="gpt-4o-mini",
-    temperature=0.3
+    temperature=0.3,
+    openai_api_key=api_key,   # ✅ Force key use, even if it's `sk-proj`
 )
 
 # ✅ Define prompt
@@ -259,11 +263,11 @@ User: {input}
 Assistant:
 """)
 
-from pydantic import BaseModel
-
+# ✅ Input schema for FastAPI
 class ChatRequest(BaseModel):
     message: str
 
+# ✅ Chat endpoint
 @app.post("/chat")
 async def chat_with_ai(request: ChatRequest):
     try:
@@ -278,6 +282,7 @@ async def chat_with_ai(request: ChatRequest):
     except Exception as e:
         print("❌ AI Error:", e)
         return {"error": str(e)}
+
 
 
 
