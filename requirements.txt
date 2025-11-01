@@ -7,6 +7,6 @@ pydantic
 python-multipart
 jinja2
 reportlab
-psycopg2-binarygit
+psycopg2-binary
 langchain
 langchain-openai
