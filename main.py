@@ -12,11 +12,35 @@ import io, os, datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
 
 # ==========================================
 # 🚀 APP INITIALIZATION
 # ==========================================
 app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """
+    <html>
+        <head><title>🎬 MovieProdAI</title></head>
+        <body style='font-family: Arial; text-align: center; padding-top: 80px;'>
+            <h1>✅ MovieProdAI API is running successfully!</h1>
+            <p>Welcome to your FastAPI backend deployed on Render.</p>
+            <p>Available routes:</p>
+            <ul style='list-style:none;'>
+                <li>➡️ <code>/upload_timesheet</code> — Upload CSV for payroll processing</li>
+                <li>➡️ <code>/payments</code> — View payment summaries</li>
+                <li>➡️ <code>/generate_deal_memo/&lt;artist_id&gt;</code> — Generate deal memo PDF</li>
+                <li>➡️ <code>/chat</code> — Talk to the AI payroll assistant</li>
+            </ul>
+        </body>
+    </html>
+    """
+
 
 # Enable CORS
 app.add_middleware(
