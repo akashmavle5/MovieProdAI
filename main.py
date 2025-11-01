@@ -62,13 +62,30 @@ else:
     print("❌ OPENAI_API_KEY not found. Check your .env file.")
 
 # PostgreSQL Configuration
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "paymaster",
-    "user": "postgres",
-    "password": "Vansh1707"
-}
+import os
+import psycopg2
+from urllib.parse import urlparse
+
+DATABASE_URL = os.getenv("postgresql://paymaster_db_user:xaLU8XvhQjvH2nKBNKnB1zL5fPACyatV@dpg-d436lupr0fns73emvnpg-a.oregon-postgres.render.com/paymaster_db")
+
+if DATABASE_URL:
+    parsed = urlparse(DATABASE_URL)
+    DB_CONFIG = {
+        "host": parsed.hostname,
+        "port": parsed.port,
+        "dbname": parsed.path[1:],
+        "user": parsed.username,
+        "password": parsed.password
+    }
+else:
+    DB_CONFIG = {
+        "host": "localhost",
+        "port": 5432,
+        "dbname": "paymaster",
+        "user": "postgres",
+        "password": "Vansh1707"
+    }
+
 
 # =====================================================
 # 📤 Upload Timesheet — Payroll Processing
