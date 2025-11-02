@@ -50,7 +50,7 @@ function App() {
 
   const fetchPayments = async () => {
     try {
-      const res = await axios.get("http://127.0.0.1:8000/payments");
+      const res = await axios.get("https://movieprodai-1.onrender.com/payments");
       const data = res.data.data || [];
       setPayments(data);
       setFiltered(data);
@@ -66,7 +66,7 @@ function App() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await axios.post("http://127.0.0.1:8000/upload_timesheet", formData, {
+      const res = await axios.post("https://movieprodai-1.onrender.com/upload_timesheet", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setMessage(res.data.message);
@@ -82,7 +82,7 @@ function App() {
     try {
       setDownloading(artist_id);
       const res = await axios.get(
-        `http://127.0.0.1:8000/generate_deal_memo/${artist_id}`,
+        `https://movieprodai-1.onrender.com/generate_deal_memo/${artist_id}`,
         { responseType: "blob" }
       );
       const url = window.URL.createObjectURL(new Blob([res.data]));
