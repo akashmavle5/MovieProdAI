@@ -79,12 +79,14 @@ if DATABASE_URL:
     }
 else:
     DB_CONFIG = {
-        "host": "localhost",
-        "port": 5432,
-        "dbname": "paymaster",
-        "user": "postgres",
-        "password": "Vansh1707"
-    }
+    "host": "dpg-d436lupr0fns73emvnpg-a.oregon-postgres.render.com",
+    "port": 5432,
+    "dbname": "paymaster_db",
+    "user": "paymaster_db_user",
+    "password": "xaLU8XvhQjvH2nKBNKnB1zL5fPACyatV"
+}
+
+
 
 
 # =====================================================
