@@ -23,9 +23,11 @@ app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
 # 🌐 CORS CONFIGURATION (✅ Secure for Netlify + Local)
 # ==========================================
 origins = [
-    "https://fancy-jelly-a6995a.netlify.app",  # ✅ Your actual Netlify frontend
-    "http://localhost:5173",                   # ✅ Keep for local React testing
+    "https://fancy-jelly-a6995a.netlify.app",  # ✅ your frontend
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
