@@ -20,11 +20,11 @@ from urllib.parse import urlparse
 app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
 
 # ==========================================
-# 🌐 CORS CONFIGURATION (Secure for Netlify + Local)
+# 🌐 CORS CONFIGURATION (✅ Secure for Netlify + Local)
 # ==========================================
 origins = [
-    "https://your-frontend-name.netlify.app",  # ✅ Replace with your Netlify site URL
-    "http://localhost:5173",                   # ✅ For local React testing
+    "https://fancy-jelly-a6995a.netlify.app",  # ✅ Your actual Netlify frontend
+    "http://localhost:5173",                   # ✅ Keep for local React testing
 ]
 
 app.add_middleware(
@@ -71,7 +71,7 @@ else:
     print("❌ OPENAI_API_KEY not found — check your Render Environment Variables.")
 
 # ==========================================
-# 🗄️ DATABASE CONFIGURATION
+# 🗄️ DATABASE CONFIGURATION (Render + Local fallback)
 # ==========================================
 if DATABASE_URL:
     parsed = urlparse(DATABASE_URL)
@@ -83,7 +83,6 @@ if DATABASE_URL:
         "password": parsed.password,
     }
 else:
-    # 🔧 Fallback (local or testing)
     DB_CONFIG = {
         "host": "dpg-d436lupr0fns73emvnpg-a.oregon-postgres.render.com",
         "port": 5432,
