@@ -1,10 +1,10 @@
 # ============================
-# 🎬 Movie Payroll API + AI Assistant (FINAL STABLE VERSION)
+# 🎬 Movie Payroll API + AI Assistant (FINAL PRODUCTION VERSION)
 # ============================
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 import pandas as pd
 import psycopg2, psycopg2.extras
@@ -12,16 +12,32 @@ import io, os, datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-
+from urllib.parse import urlparse
 
 # ==========================================
 # 🚀 APP INITIALIZATION
 # ==========================================
 app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
 
-from fastapi.responses import HTMLResponse
+# ==========================================
+# 🌐 CORS CONFIGURATION (Secure for Netlify + Local)
+# ==========================================
+origins = [
+    "https://your-frontend-name.netlify.app",  # ✅ Replace with your Netlify site URL
+    "http://localhost:5173",                   # ✅ For local React testing
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==========================================
+# 🏠 Root Route — Health Check
+# ==========================================
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -41,57 +57,44 @@ def home():
     </html>
     """
 
-
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Load environment variables (for API key)
+# ==========================================
+# 🔐 ENVIRONMENT VARIABLES
+# ==========================================
 load_dotenv()
 
-# ✅ Debug check — confirm key loaded
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 if OPENAI_KEY:
     print("✅ Loaded OpenAI API key:", OPENAI_KEY[:10], "********")
 else:
-    print("❌ OPENAI_API_KEY not found. Check your .env file.")
+    print("❌ OPENAI_API_KEY not found — check your Render Environment Variables.")
 
-# PostgreSQL Configuration
-import os
-import psycopg2
-from urllib.parse import urlparse
-
-DATABASE_URL = os.getenv("postgresql://paymaster_db_user:xaLU8XvhQjvH2nKBNKnB1zL5fPACyatV@dpg-d436lupr0fns73emvnpg-a/paymaster_db")
-
+# ==========================================
+# 🗄️ DATABASE CONFIGURATION
+# ==========================================
 if DATABASE_URL:
     parsed = urlparse(DATABASE_URL)
     DB_CONFIG = {
         "host": parsed.hostname,
-        "port": parsed.port,
-        "dbname": parsed.path[1:],
+        "port": parsed.port or 5432,
+        "dbname": parsed.path.lstrip("/"),
         "user": parsed.username,
-        "password": parsed.password
+        "password": parsed.password,
     }
 else:
+    # 🔧 Fallback (local or testing)
     DB_CONFIG = {
-    "host": "dpg-d436lupr0fns73emvnpg-a.oregon-postgres.render.com",
-    "port": 5432,
-    "dbname": "paymaster_db",
-    "user": "paymaster_db_user",
-    "password": "xaLU8XvhQjvH2nKBNKnB1zL5fPACyatV"
-}
+        "host": "dpg-d436lupr0fns73emvnpg-a.oregon-postgres.render.com",
+        "port": 5432,
+        "dbname": "paymaster_db",
+        "user": "paymaster_db_user",
+        "password": "xaLU8XvhQjvH2nKBNKnB1zL5fPACyatV",
+    }
 
-
-
-
-# =====================================================
+# ==========================================
 # 📤 Upload Timesheet — Payroll Processing
-# =====================================================
+# ==========================================
 @app.post("/upload_timesheet")
 async def upload_timesheet(file: UploadFile = File(...)):
     try:
@@ -114,7 +117,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
             is_holiday = str(row.get("is_holiday", "FALSE")).strip().upper() == "TRUE"
             is_hazard = str(row.get("is_hazard", "FALSE")).strip().upper() == "TRUE"
 
-            # 1️⃣ Get artist_type_id
             cur.execute("SELECT id FROM artist_types WHERE LOWER(type_name) = LOWER(%s) LIMIT 1;", (role,))
             artist_type = cur.fetchone()
             artist_type_id = artist_type["id"] if artist_type else None
@@ -135,7 +137,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 overtime_rate = get_rule("overtime_rate") or 1.5
                 per_diem = get_rule("per_diem") or 0
 
-            # 2️⃣ Payroll Computation
             regular_hours = min(hours, 8)
             overtime_hours = max(0, min(hours - 8, 4))
             doubletime_hours = max(0, hours - 12)
@@ -152,7 +153,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 per_diem + holiday_bonus + hazard_bonus
             )
 
-            # 3️⃣ Insert into DB
             cur.execute("""
                 INSERT INTO artist_payment_summary
                 (artist_id, role, hours_worked, regular_pay, overtime_pay, per_diem, total_pay)
@@ -187,9 +187,9 @@ async def upload_timesheet(file: UploadFile = File(...)):
         print("❌ Error:", e)
         return {"error": str(e)}
 
-# =====================================================
+# ==========================================
 # 💰 Fetch Payments Endpoint
-# =====================================================
+# ==========================================
 @app.get("/payments")
 def get_payments():
     try:
@@ -210,9 +210,9 @@ def get_payments():
         print("❌ Error fetching payments:", e)
         return {"error": str(e)}
 
-# =====================================================
+# ==========================================
 # 📄 Deal Memo Generator
-# =====================================================
+# ==========================================
 @app.get("/generate_deal_memo/{artist_id}")
 def generate_deal_memo(artist_id: int):
     try:
@@ -254,45 +254,22 @@ def generate_deal_memo(artist_id: int):
         print("❌ PDF generation error:", e)
         return {"error": str(e)}
 
-# =====================================================
-# 🤖 AI Assistant (LangChain + OpenAI — Final FIXED VERSION)
-# =====================================================
+# ==========================================
+# 🤖 AI Assistant (LangChain + OpenAI)
+# ==========================================
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from dotenv import load_dotenv
-from pydantic import BaseModel
-import os
 
-# ✅ Load .env file
-load_dotenv()
-
-# ✅ Get environment variables
 api_key = os.getenv("OPENAI_API_KEY")
-org_id = os.getenv("OPENAI_ORG_ID")
-project_id = os.getenv("OPENAI_PROJECT_ID")
-
-# 🚨 Validate key
 if not api_key:
-    raise ValueError("❌ OPENAI_API_KEY missing in .env file")
+    raise ValueError("❌ OPENAI_API_KEY missing in .env or Render settings")
 
-# ✅ Set environment variables for SDK
-os.environ["OPENAI_API_KEY"] = api_key
-if org_id:
-    os.environ["OPENAI_ORG_ID"] = org_id
-if project_id:
-    os.environ["OPENAI_PROJECT_ID"] = project_id
-
-print("✅ Loaded OpenAI API key:", api_key[:15], "********")
-
-# ✅ Initialize ChatOpenAI
-# (Passing API key explicitly fixes the 401 + project argument issues)
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0.3,
-    openai_api_key=api_key,   # ✅ Force key use, even if it's `sk-proj`
+    openai_api_key=api_key,
 )
 
-# ✅ Define prompt
 prompt = ChatPromptTemplate.from_template("""
 You are a payroll assistant for the movie industry union Paymaster 2025-2026.
 Answer user questions about payroll, overtime, per diems, bonuses, and rates.
@@ -306,11 +283,9 @@ User: {input}
 Assistant:
 """)
 
-# ✅ Input schema for FastAPI
 class ChatRequest(BaseModel):
     message: str
 
-# ✅ Chat endpoint
 @app.post("/chat")
 async def chat_with_ai(request: ChatRequest):
     try:
@@ -325,11 +300,3 @@ async def chat_with_ai(request: ChatRequest):
     except Exception as e:
         print("❌ AI Error:", e)
         return {"error": str(e)}
-
-
-
-
-
-
-
-
