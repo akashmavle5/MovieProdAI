@@ -1,5 +1,5 @@
 # ============================
-# 🎬 Movie Payroll API + AI Assistant (FINAL PRODUCTION VERSION — FIXED MATCH LOGIC)
+# 🎬 Movie Payroll API + AI Assistant + RAG Integration
 # ============================
 
 from fastapi import FastAPI, UploadFile, File
@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 # ==========================================
 # 🚀 APP INITIALIZATION
 # ==========================================
-app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
+app = FastAPI(title="🎬 Movie Payroll API + AI Assistant + RAG")
 
 # ==========================================
 # 🌐 CORS CONFIGURATION
@@ -43,8 +43,8 @@ def home():
     return """
     <html><head><title>🎬 MovieProdAI</title></head>
     <body style='font-family: Arial; text-align: center; padding-top: 80px;'>
-        <h1>✅ MovieProdAI API is running successfully!</h1>
-        <p>Upload timesheets, fetch payments, or chat with the assistant.</p>
+        <h1>✅ MovieProdAI API with RAG is running successfully!</h1>
+        <p>Upload timesheets, payroll docs, or chat with the assistant.</p>
     </body></html>
     """
 
@@ -101,7 +101,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
             is_holiday = str(row.get("is_holiday", "FALSE")).strip().upper() == "TRUE"
             is_hazard = str(row.get("is_hazard", "FALSE")).strip().upper() == "TRUE"
 
-            # Try to find a matching artist type (case-insensitive, partial match)
             cur.execute("""
                 SELECT id FROM artist_types 
                 WHERE LOWER(type_name) LIKE %s
@@ -110,7 +109,7 @@ async def upload_timesheet(file: UploadFile = File(...)):
             artist_type = cur.fetchone()
             artist_type_id = artist_type["id"] if artist_type else None
 
-            # ✅ If role not found, create one dynamically
+            # If role not found, create dynamically
             if not artist_type_id:
                 cur.execute("""
                     INSERT INTO artist_types (type_name)
@@ -118,7 +117,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
                     RETURNING id;
                 """, (role.capitalize(),))
                 artist_type_id = cur.fetchone()["id"]
-                # Default starter rates for new role
                 cur.execute("""
                     INSERT INTO rules (artist_type_id, rule_type, value)
                     VALUES
@@ -128,7 +126,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 """, (artist_type_id, artist_type_id, artist_type_id))
                 conn.commit()
 
-            # ✅ Fetch rates safely
             def get_rule(rule_type):
                 cur.execute("""
                     SELECT value FROM rules
@@ -142,7 +139,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
             overtime_rate = get_rule("overtime_rate") or 1.5
             per_diem = get_rule("per_diem") or 50
 
-            # ✅ Payroll calculations
             regular_hours = min(hours, 8)
             overtime_hours = max(0, min(hours - 8, 4))
             doubletime_hours = max(0, hours - 12)
@@ -150,7 +146,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
             regular_pay = regular_hours * base_rate
             overtime_pay = overtime_hours * base_rate * overtime_rate
             doubletime_pay = doubletime_hours * base_rate * 2.0
-
             holiday_bonus = regular_pay * 0.5 if is_holiday else 0
             hazard_bonus = base_rate * 0.2 * hours if is_hazard else 0
 
@@ -186,13 +181,11 @@ async def upload_timesheet(file: UploadFile = File(...)):
         conn.commit()
         cur.close()
         conn.close()
-
         return {"message": f"✅ Processed {len(results)} records successfully", "data": results}
 
     except Exception as e:
         print("❌ Error:", e)
         return {"error": str(e)}
-
 
 # ==========================================
 # 💰 Fetch Payments Endpoint
@@ -261,7 +254,7 @@ def generate_deal_memo(artist_id: int):
         return {"error": str(e)}
 
 # ==========================================
-# 🤖 AI Assistant
+# 🤖 AI Assistant + RAG Integration
 # ==========================================
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -274,14 +267,62 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3, openai_api_key=api_key)
 prompt = ChatPromptTemplate.from_template("""
 You are a payroll assistant for the movie industry union Paymaster 2025-2026.
 Answer user questions about payroll, overtime, per diems, bonuses, and rates.
-
 If the question is about rates, refer to 'rules' table.
 If about total pay, refer to 'artist_payment_summary' table.
-
 User: {input}
 Assistant:
 """)
 
+# ==========================================
+# 📚 RAG (Retrieval-Augmented Generation)
+# ==========================================
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain.chains import RetrievalQA
+
+VECTOR_STORE_PATH = "knowledge_base/store.faiss"
+DOCS_PATH = "knowledge_base/docs"
+os.makedirs(DOCS_PATH, exist_ok=True)
+
+embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+
+def update_vector_store():
+    docs = []
+    for file in os.listdir(DOCS_PATH):
+        file_path = os.path.join(DOCS_PATH, file)
+        if file.endswith(".pdf"):
+            loader = PyPDFLoader(file_path)
+        elif file.endswith(".docx"):
+            loader = Docx2txtLoader(file_path)
+        elif file.endswith(".txt"):
+            loader = TextLoader(file_path)
+        else:
+            continue
+        docs.extend(loader.load())
+    if not docs:
+        return None
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    vectorstore.save_local(VECTOR_STORE_PATH)
+    return vectorstore
+
+def get_vector_store():
+    if os.path.exists(VECTOR_STORE_PATH):
+        return FAISS.load_local(VECTOR_STORE_PATH, embeddings, allow_dangerous_deserialization=True)
+    else:
+        return update_vector_store()
+
+@app.post("/upload_doc")
+async def upload_doc(file: UploadFile = File(...)):
+    file_path = os.path.join(DOCS_PATH, file.filename)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+    update_vector_store()
+    return {"message": f"✅ Document '{file.filename}' indexed successfully!"}
+
+# ==========================================
+# 💬 Chat Endpoint (Enhanced with RAG)
+# ==========================================
 class ChatRequest(BaseModel):
     message: str
 
@@ -291,9 +332,22 @@ async def chat_with_ai(request: ChatRequest):
         user_input = request.message.strip()
         if not user_input:
             return {"error": "Missing input message"}
-        chain = prompt | llm
-        response = chain.invoke({"input": user_input})
-        return {"reply": response.content}
+
+        vectorstore = get_vector_store()
+        if vectorstore:
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+            )
+            response = qa_chain.run(user_input)
+        else:
+            chain = prompt | llm
+            response = chain.invoke({"input": user_input}).content
+
+        return {"reply": response}
+
     except Exception as e:
         print("❌ AI Error:", e)
         return {"error": str(e)}
