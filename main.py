@@ -1,5 +1,5 @@
 # ============================
-# 🎬 Movie Payroll API + AI Assistant (FINAL PRODUCTION VERSION)
+# 🎬 Movie Payroll API + AI Assistant (FINAL PRODUCTION VERSION — FIXED MATCH LOGIC)
 # ============================
 
 from fastapi import FastAPI, UploadFile, File
@@ -20,15 +20,13 @@ from urllib.parse import urlparse
 app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
 
 # ==========================================
-# 🌐 CORS CONFIGURATION (✅ Secure for Netlify + Local)
+# 🌐 CORS CONFIGURATION
 # ==========================================
 origins = [
-    "https://fancy-jelly-a6995a.netlify.app",  # ✅ your frontend
+    "https://fancy-jelly-a6995a.netlify.app",
     "http://localhost:5173",
     "http://localhost:3000",
 ]
-
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -43,37 +41,22 @@ app.add_middleware(
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
-    <html>
-        <head><title>🎬 MovieProdAI</title></head>
-        <body style='font-family: Arial; text-align: center; padding-top: 80px;'>
-            <h1>✅ MovieProdAI API is running successfully!</h1>
-            <p>Welcome to your FastAPI backend deployed on Render.</p>
-            <p>Available routes:</p>
-            <ul style='list-style:none;'>
-                <li>➡️ <code>/upload_timesheet</code> — Upload CSV for payroll processing</li>
-                <li>➡️ <code>/payments</code> — View payment summaries</li>
-                <li>➡️ <code>/generate_deal_memo/&lt;artist_id&gt;</code> — Generate deal memo PDF</li>
-                <li>➡️ <code>/chat</code> — Talk to the AI payroll assistant</li>
-            </ul>
-        </body>
-    </html>
+    <html><head><title>🎬 MovieProdAI</title></head>
+    <body style='font-family: Arial; text-align: center; padding-top: 80px;'>
+        <h1>✅ MovieProdAI API is running successfully!</h1>
+        <p>Upload timesheets, fetch payments, or chat with the assistant.</p>
+    </body></html>
     """
 
 # ==========================================
 # 🔐 ENVIRONMENT VARIABLES
 # ==========================================
 load_dotenv()
-
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if OPENAI_KEY:
-    print("✅ Loaded OpenAI API key:", OPENAI_KEY[:10], "********")
-else:
-    print("❌ OPENAI_API_KEY not found — check your Render Environment Variables.")
-
 # ==========================================
-# 🗄️ DATABASE CONFIGURATION (Render + Local fallback)
+# 🗄️ DATABASE CONFIGURATION
 # ==========================================
 if DATABASE_URL:
     parsed = urlparse(DATABASE_URL)
@@ -112,25 +95,37 @@ async def upload_timesheet(file: UploadFile = File(...)):
         results = []
 
         for _, row in df.iterrows():
-            role = str(row["role"]).capitalize()
+            role = str(row["role"]).strip()
             hours = float(row["hours_worked"])
             artist_id = int(row["artist_id"])
             is_holiday = str(row.get("is_holiday", "FALSE")).strip().upper() == "TRUE"
             is_hazard = str(row.get("is_hazard", "FALSE")).strip().upper() == "TRUE"
 
-            cur.execute("SELECT id FROM artist_types WHERE LOWER(type_name) = LOWER(%s) LIMIT 1;", (role,))
+            # ✅ Improved Role Matching Logic
+            cur.execute(
+                "SELECT id FROM artist_types WHERE LOWER(type_name) = LOWER(%s) LIMIT 1;",
+                (role,),
+            )
             artist_type = cur.fetchone()
+            if not artist_type:
+                # Fuzzy partial match
+                cur.execute(
+                    "SELECT id FROM artist_types WHERE LOWER(type_name) LIKE LOWER(%s) LIMIT 1;",
+                    (f"%{role}%",),
+                )
+                artist_type = cur.fetchone()
+
             artist_type_id = artist_type["id"] if artist_type else None
 
             if not artist_type_id:
+                print(f"⚠️ No matching artist_type found for role '{role}', defaulting to 0 pay.")
                 base_rate, overtime_rate, per_diem = 0, 1.5, 0
             else:
                 def get_rule(rule_type):
-                    cur.execute("""
-                        SELECT value FROM rules
-                        WHERE artist_type_id = %s AND rule_type = %s
-                        LIMIT 1;
-                    """, (artist_type_id, rule_type))
+                    cur.execute(
+                        "SELECT value FROM rules WHERE artist_type_id = %s AND rule_type = %s LIMIT 1;",
+                        (artist_type_id, rule_type),
+                    )
                     r = cur.fetchone()
                     return r["value"] if r else None
 
@@ -148,23 +143,25 @@ async def upload_timesheet(file: UploadFile = File(...)):
 
             holiday_bonus = regular_pay * 0.5 if is_holiday else 0
             hazard_bonus = base_rate * 0.2 * hours if is_hazard else 0
-
             total_pay = (
                 regular_pay + overtime_pay + doubletime_pay +
                 per_diem + holiday_bonus + hazard_bonus
             )
 
-            cur.execute("""
-                INSERT INTO artist_payment_summary
-                (artist_id, role, hours_worked, regular_pay, overtime_pay, per_diem, total_pay)
-                VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """, (
-                artist_id, role, hours,
-                regular_pay + holiday_bonus,
-                overtime_pay + doubletime_pay + hazard_bonus,
-                per_diem,
-                total_pay
-            ))
+            cur.execute(
+                """INSERT INTO artist_payment_summary
+                   (artist_id, role, hours_worked, regular_pay, overtime_pay, per_diem, total_pay)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s);""",
+                (
+                    artist_id,
+                    role,
+                    hours,
+                    regular_pay + holiday_bonus,
+                    overtime_pay + doubletime_pay + hazard_bonus,
+                    per_diem,
+                    total_pay,
+                ),
+            )
 
             results.append({
                 "artist_id": artist_id,
@@ -175,13 +172,12 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 "per_diem": per_diem,
                 "holiday_bonus": holiday_bonus,
                 "hazard_bonus": hazard_bonus,
-                "total_pay": total_pay
+                "total_pay": total_pay,
             })
 
         conn.commit()
         cur.close()
         conn.close()
-
         return {"message": f"✅ Processed {len(results)} records successfully", "data": results}
 
     except Exception as e:
@@ -246,9 +242,8 @@ def generate_deal_memo(artist_id: int):
             c.drawString(100, y, f"{key}: {value}")
             y -= 20
         c.setFont("Helvetica-Oblique", 10)
-        c.drawString(100, 80, f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        c.drawString(100, 80, f"Generated on: {datetime.datetime.now()}")
         c.save()
-
         return FileResponse(filepath, media_type="application/pdf", filename=filename)
 
     except Exception as e:
@@ -256,7 +251,7 @@ def generate_deal_memo(artist_id: int):
         return {"error": str(e)}
 
 # ==========================================
-# 🤖 AI Assistant (LangChain + OpenAI)
+# 🤖 AI Assistant
 # ==========================================
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -265,20 +260,13 @@ api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("❌ OPENAI_API_KEY missing in .env or Render settings")
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3,
-    openai_api_key=api_key,
-)
-
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3, openai_api_key=api_key)
 prompt = ChatPromptTemplate.from_template("""
 You are a payroll assistant for the movie industry union Paymaster 2025-2026.
 Answer user questions about payroll, overtime, per diems, bonuses, and rates.
 
-If the question is about rates, refer to:
-- The 'rules' table.
-If about total pay, refer to:
-- The 'artist_payment_summary' table.
+If the question is about rates, refer to 'rules' table.
+If about total pay, refer to 'artist_payment_summary' table.
 
 User: {input}
 Assistant:
@@ -293,11 +281,9 @@ async def chat_with_ai(request: ChatRequest):
         user_input = request.message.strip()
         if not user_input:
             return {"error": "Missing input message"}
-
         chain = prompt | llm
         response = chain.invoke({"input": user_input})
         return {"reply": response.content}
-
     except Exception as e:
         print("❌ AI Error:", e)
         return {"error": str(e)}
