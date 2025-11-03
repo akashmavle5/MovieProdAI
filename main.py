@@ -95,44 +95,54 @@ async def upload_timesheet(file: UploadFile = File(...)):
         results = []
 
         for _, row in df.iterrows():
-            role = str(row["role"]).strip()
+            role = str(row["role"]).strip().lower()
             hours = float(row["hours_worked"])
             artist_id = int(row["artist_id"])
             is_holiday = str(row.get("is_holiday", "FALSE")).strip().upper() == "TRUE"
             is_hazard = str(row.get("is_hazard", "FALSE")).strip().upper() == "TRUE"
 
-            # ✅ Improved Role Matching Logic
-            cur.execute(
-                "SELECT id FROM artist_types WHERE LOWER(type_name) = LOWER(%s) LIMIT 1;",
-                (role,),
-            )
+            # Try to find a matching artist type (case-insensitive, partial match)
+            cur.execute("""
+                SELECT id FROM artist_types 
+                WHERE LOWER(type_name) LIKE %s
+                LIMIT 1;
+            """, (f"%{role}%",))
             artist_type = cur.fetchone()
-            if not artist_type:
-                # Fuzzy partial match
-                cur.execute(
-                    "SELECT id FROM artist_types WHERE LOWER(type_name) LIKE LOWER(%s) LIMIT 1;",
-                    (f"%{role}%",),
-                )
-                artist_type = cur.fetchone()
-
             artist_type_id = artist_type["id"] if artist_type else None
 
+            # ✅ If role not found, create one dynamically
             if not artist_type_id:
-                print(f"⚠️ No matching artist_type found for role '{role}', defaulting to 0 pay.")
-                base_rate, overtime_rate, per_diem = 0, 1.5, 0
-            else:
-                def get_rule(rule_type):
-                    cur.execute(
-                        "SELECT value FROM rules WHERE artist_type_id = %s AND rule_type = %s LIMIT 1;",
-                        (artist_type_id, rule_type),
-                    )
-                    r = cur.fetchone()
-                    return r["value"] if r else None
+                cur.execute("""
+                    INSERT INTO artist_types (type_name)
+                    VALUES (%s)
+                    RETURNING id;
+                """, (role.capitalize(),))
+                artist_type_id = cur.fetchone()["id"]
+                # Default starter rates for new role
+                cur.execute("""
+                    INSERT INTO rules (artist_type_id, rule_type, value)
+                    VALUES
+                    (%s, 'base_rate', 100),
+                    (%s, 'overtime_rate', 1.5),
+                    (%s, 'per_diem', 50);
+                """, (artist_type_id, artist_type_id, artist_type_id))
+                conn.commit()
 
-                base_rate = get_rule("base_rate") or 0
-                overtime_rate = get_rule("overtime_rate") or 1.5
-                per_diem = get_rule("per_diem") or 0
+            # ✅ Fetch rates safely
+            def get_rule(rule_type):
+                cur.execute("""
+                    SELECT value FROM rules
+                    WHERE artist_type_id = %s AND rule_type = %s
+                    LIMIT 1;
+                """, (artist_type_id, rule_type))
+                r = cur.fetchone()
+                return r["value"] if r else None
 
+            base_rate = get_rule("base_rate") or 100
+            overtime_rate = get_rule("overtime_rate") or 1.5
+            per_diem = get_rule("per_diem") or 50
+
+            # ✅ Payroll calculations
             regular_hours = min(hours, 8)
             overtime_hours = max(0, min(hours - 8, 4))
             doubletime_hours = max(0, hours - 12)
@@ -143,46 +153,46 @@ async def upload_timesheet(file: UploadFile = File(...)):
 
             holiday_bonus = regular_pay * 0.5 if is_holiday else 0
             hazard_bonus = base_rate * 0.2 * hours if is_hazard else 0
+
             total_pay = (
                 regular_pay + overtime_pay + doubletime_pay +
                 per_diem + holiday_bonus + hazard_bonus
             )
 
-            cur.execute(
-                """INSERT INTO artist_payment_summary
-                   (artist_id, role, hours_worked, regular_pay, overtime_pay, per_diem, total_pay)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s);""",
-                (
-                    artist_id,
-                    role,
-                    hours,
-                    regular_pay + holiday_bonus,
-                    overtime_pay + doubletime_pay + hazard_bonus,
-                    per_diem,
-                    total_pay,
-                ),
-            )
+            cur.execute("""
+                INSERT INTO artist_payment_summary
+                (artist_id, role, hours_worked, regular_pay, overtime_pay, per_diem, total_pay)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, (
+                artist_id, role.capitalize(), hours,
+                regular_pay + holiday_bonus,
+                overtime_pay + doubletime_pay + hazard_bonus,
+                per_diem,
+                total_pay
+            ))
 
             results.append({
                 "artist_id": artist_id,
-                "role": role,
+                "role": role.capitalize(),
                 "hours_worked": hours,
                 "regular_pay": regular_pay,
                 "overtime_pay": overtime_pay,
                 "per_diem": per_diem,
                 "holiday_bonus": holiday_bonus,
                 "hazard_bonus": hazard_bonus,
-                "total_pay": total_pay,
+                "total_pay": total_pay
             })
 
         conn.commit()
         cur.close()
         conn.close()
+
         return {"message": f"✅ Processed {len(results)} records successfully", "data": results}
 
     except Exception as e:
         print("❌ Error:", e)
         return {"error": str(e)}
+
 
 # ==========================================
 # 💰 Fetch Payments Endpoint
