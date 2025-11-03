@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from "./api";
 
 const ChatAssistant = () => {
@@ -7,6 +7,23 @@ const ChatAssistant = () => {
     { sender: "assistant", text: "👋 Hello! I'm your Payroll Assistant. How can I help you today?" },
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [theme, setTheme] = useState(
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  );
+  const messagesEndRef = useRef(null);
+
+  // 👀 Auto-scroll to bottom when new messages appear
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  // 🌗 Detect theme change automatically
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (e) => setTheme(e.matches ? "dark" : "light");
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   const handleChat = async () => {
     if (!message.trim()) return;
@@ -31,36 +48,38 @@ const ChatAssistant = () => {
     }
   };
 
+  const s = styles(theme);
+
   return (
-    <div style={styles.container}>
-      <div style={styles.chatBox}>
-        <h2 style={styles.header}>🎬 Payroll Assistant</h2>
-        <div style={styles.messagesContainer}>
+    <div style={s.container}>
+      <div style={s.chatBox}>
+        <h2 style={s.header}>🎬 Payroll Assistant</h2>
+
+        <div style={s.messagesContainer}>
           {messages.map((msg, index) => (
             <div
               key={index}
               style={{
-                ...styles.message,
-                ...(msg.sender === "user" ? styles.userMessage : styles.assistantMessage),
+                ...s.message,
+                ...(msg.sender === "user" ? s.userMessage : s.assistantMessage),
               }}
             >
               {msg.text}
             </div>
           ))}
-          {isLoading && (
-            <div style={styles.typing}>💬 Assistant is typing...</div>
-          )}
+          {isLoading && <div style={s.typing}>💬 Assistant is typing...</div>}
+          <div ref={messagesEndRef} />
         </div>
 
-        <div style={styles.inputContainer}>
+        <div style={s.inputContainer}>
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your question..."
             rows={2}
-            style={styles.textarea}
+            style={s.textarea}
           />
-          <button onClick={handleChat} style={styles.button}>
+          <button onClick={handleChat} style={s.button}>
             Send 🚀
           </button>
         </div>
@@ -69,21 +88,23 @@ const ChatAssistant = () => {
   );
 };
 
-// 💅 Inline styling for clean, professional look
-const styles = {
+// 💅 Professional theme-adaptive styling
+const styles = (theme) => ({
   container: {
     display: "flex",
     justifyContent: "center",
     marginTop: "50px",
+    transition: "all 0.3s ease-in-out",
   },
   chatBox: {
     width: "450px",
-    background: "#fff",
+    background: theme === "dark" ? "#1e1e1e" : "#fff",
     borderRadius: "12px",
-    boxShadow: "0 0 20px rgba(0,0,0,0.1)",
+    boxShadow: "0 0 20px rgba(0,0,0,0.15)",
     overflow: "hidden",
     display: "flex",
     flexDirection: "column",
+    color: theme === "dark" ? "#f5f5f5" : "#000",
   },
   header: {
     background: "#007bff",
@@ -97,7 +118,8 @@ const styles = {
     padding: "15px",
     overflowY: "auto",
     maxHeight: "400px",
-    background: "#f9f9f9",
+    background: theme === "dark" ? "#2a2a2a" : "#f9f9f9",
+    transition: "background 0.3s ease-in-out",
   },
   message: {
     marginBottom: "12px",
@@ -106,27 +128,28 @@ const styles = {
     maxWidth: "80%",
     wordWrap: "break-word",
     fontSize: "15px",
+    lineHeight: "1.4",
   },
   userMessage: {
-    background: "#dcf8c6",
+    background: theme === "dark" ? "#4a4a4a" : "#dcf8c6",
     alignSelf: "flex-end",
     marginLeft: "auto",
   },
   assistantMessage: {
-    background: "#f1f0f0",
+    background: theme === "dark" ? "#333" : "#f1f0f0",
     alignSelf: "flex-start",
     marginRight: "auto",
   },
   typing: {
     fontStyle: "italic",
-    color: "#555",
+    color: theme === "dark" ? "#ccc" : "#555",
     marginBottom: "10px",
   },
   inputContainer: {
     display: "flex",
     borderTop: "1px solid #ddd",
     padding: "10px",
-    background: "#fff",
+    background: theme === "dark" ? "#1e1e1e" : "#fff",
   },
   textarea: {
     flex: 1,
@@ -136,6 +159,8 @@ const styles = {
     fontSize: "14px",
     resize: "none",
     outline: "none",
+    background: theme === "dark" ? "#2a2a2a" : "#fff",
+    color: theme === "dark" ? "#fff" : "#000",
   },
   button: {
     background: "#007bff",
@@ -146,7 +171,8 @@ const styles = {
     borderRadius: "8px",
     cursor: "pointer",
     fontWeight: "bold",
+    transition: "background 0.2s",
   },
-};
+});
 
 export default ChatAssistant;

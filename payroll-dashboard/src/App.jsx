@@ -13,6 +13,7 @@ import {
   Cell,
   LineChart,
   Line,
+  CartesianGrid,
 } from "recharts";
 import { motion } from "framer-motion";
 import ChatAssistant from "./ChatAssistant";
@@ -26,12 +27,10 @@ function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [minPay, setMinPay] = useState("");
   const [maxPay, setMaxPay] = useState("");
-  const [darkMode, setDarkMode] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
+  const [darkMode, setDarkMode] = useState(localStorage.getItem("theme") === "dark");
   const [showScroll, setShowScroll] = useState(false);
 
-  // 🌙 Toggle dark mode
+  // 🌙 Theme toggle
   const toggleTheme = () => {
     const newMode = !darkMode;
     setDarkMode(newMode);
@@ -43,11 +42,11 @@ function App() {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
-  // 🚀 Fetch payroll data
   useEffect(() => {
     fetchPayments();
   }, []);
 
+  // 🚀 Fetch payroll data
   const fetchPayments = async () => {
     try {
       const res = await axios.get("https://movieprodai-1.onrender.com/payments");
@@ -73,7 +72,7 @@ function App() {
       await fetchPayments();
     } catch (err) {
       console.error("Upload failed:", err);
-      setMessage("Upload failed. Check backend.");
+      setMessage("❌ Upload failed. Check backend.");
     }
   };
 
@@ -99,7 +98,7 @@ function App() {
     }
   };
 
-  // 🔍 Filtering logic
+  // 🔍 Filter logic
   useEffect(() => {
     let data = [...payments];
     const lower = searchTerm.toLowerCase();
@@ -114,7 +113,7 @@ function App() {
     setFiltered(data);
   }, [searchTerm, minPay, maxPay, payments]);
 
-  // 📊 Chart data
+  // 📊 Grouping data for charts
   const roleData = Object.values(
     filtered.reduce((acc, p) => {
       if (!acc[p.role])
@@ -138,15 +137,27 @@ function App() {
     avgHours: (r.totalHours / r.count).toFixed(1),
   }));
 
-  // 🧭 Scroll button logic
+  // 🆕 Total Pay Trend (sorted by upload order)
+  const trendData = [...filtered]
+    .reverse()
+    .slice(0, 15)
+    .map((p, i) => ({
+      id: p.artist_id || i + 1,
+      totalPay: p.total_pay || 0,
+      role: p.role || "Unknown",
+    }));
+
+  // Scroll logic
   useEffect(() => {
     const handleScroll = () => setShowScroll(window.scrollY > 250);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const scrollToTop = () =>
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const axisColor = darkMode ? "#E5E7EB" : "#111827";
+  const gridColor = darkMode ? "#374151" : "#E5E7EB";
 
   return (
     <div
@@ -154,7 +165,7 @@ function App() {
         darkMode ? "bg-gray-900 text-gray-100" : "bg-gray-50 text-gray-900"
       }`}
     >
-      {/* 🧭 Navbar */}
+      {/* 🌙 Navbar */}
       <motion.nav
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -174,7 +185,7 @@ function App() {
         </button>
       </motion.nav>
 
-      {/* 🧾 Main Content */}
+      {/* 🧾 Dashboard */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -208,213 +219,201 @@ function App() {
           <p className="text-center text-green-500 font-medium mb-6">{message}</p>
         )}
 
-        {/* 🔍 Filter Bar */}
-        <div className="flex flex-wrap gap-4 justify-center mb-8">
-          <input
-            type="text"
-            placeholder="Search by role or artist ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="p-2 border border-gray-300 rounded-md w-60 dark:bg-gray-700 dark:border-gray-600"
-          />
-          <input
-            type="number"
-            placeholder="Min Pay"
-            value={minPay}
-            onChange={(e) => setMinPay(e.target.value)}
-            className="p-2 border border-gray-300 rounded-md w-32 dark:bg-gray-700 dark:border-gray-600"
-          />
-          <input
-            type="number"
-            placeholder="Max Pay"
-            value={maxPay}
-            onChange={(e) => setMaxPay(e.target.value)}
-            className="p-2 border border-gray-300 rounded-md w-32 dark:bg-gray-700 dark:border-gray-600"
-          />
-          <button
-            onClick={() => {
-              setSearchTerm("");
-              setMinPay("");
-              setMaxPay("");
-              setFiltered(payments);
-            }}
-            className="bg-gray-300 px-4 py-2 rounded-md hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500"
-          >
-            Reset
-          </button>
-        </div>
-
-        {/* 💼 Table + Charts + Chat */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-        >
-          {/* 💼 Payroll Table */}
-          <div className="overflow-x-auto bg-white dark:bg-gray-800 shadow-md rounded-xl mb-12">
-            <table className="min-w-full border-collapse border border-gray-200 dark:border-gray-700">
-              <thead className="bg-indigo-50 dark:bg-gray-700 text-indigo-800 dark:text-gray-100">
-                <tr>
-                  <th className="py-3 px-4 border-b">Artist ID</th>
-                  <th className="py-3 px-4 border-b">Role</th>
-                  <th className="py-3 px-4 border-b">Hours</th>
-                  <th className="py-3 px-4 border-b">Regular Pay</th>
-                  <th className="py-3 px-4 border-b">Overtime Pay</th>
-                  <th className="py-3 px-4 border-b">Per Diem</th>
-                  <th className="py-3 px-4 border-b font-semibold">Total Pay</th>
-                  <th className="py-3 px-4 border-b">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length > 0 ? (
-                  filtered.map((p, i) => (
-                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700 text-center">
-                      <td className="py-2 px-4 border-b">{p.artist_id}</td>
-                      <td className="py-2 px-4 border-b">{p.role}</td>
-                      <td className="py-2 px-4 border-b">{p.hours_worked}</td>
-                      <td className="py-2 px-4 border-b">${p.regular_pay}</td>
-                      <td className="py-2 px-4 border-b">${p.overtime_pay}</td>
-                      <td className="py-2 px-4 border-b">${p.per_diem}</td>
-                      <td className="py-2 px-4 border-b font-semibold text-indigo-600 dark:text-indigo-400">
-                        ${p.total_pay}
-                      </td>
-                      <td className="py-2 px-4 border-b">
-                        <button
-                          onClick={() => downloadMemo(p.artist_id)}
-                          disabled={downloading === p.artist_id}
-                          className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 disabled:bg-gray-400 transition"
-                        >
-                          {downloading === p.artist_id ? "⏳ Generating..." : "📄 PDF"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="8" className="py-6 text-gray-500 text-center italic">
-                      No matching records.
+        {/* 💼 Payroll Table */}
+        <div className="overflow-x-auto bg-white dark:bg-gray-800 shadow-lg rounded-xl mb-12">
+          <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-700">
+            <thead className="bg-indigo-100 dark:bg-gray-700 text-indigo-800 dark:text-gray-100">
+              <tr>
+                <th className="py-3 px-4 border-b">Artist ID</th>
+                <th className="py-3 px-4 border-b">Role</th>
+                <th className="py-3 px-4 border-b">Hours</th>
+                <th className="py-3 px-4 border-b">Regular Pay</th>
+                <th className="py-3 px-4 border-b">Overtime Pay</th>
+                <th className="py-3 px-4 border-b">Per Diem</th>
+                <th className="py-3 px-4 border-b font-semibold">Total Pay</th>
+                <th className="py-3 px-4 border-b">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length > 0 ? (
+                filtered.map((p, i) => (
+                  <tr
+                    key={i}
+                    className={`text-center ${
+                      i % 2 === 0
+                        ? darkMode
+                          ? "bg-gray-800"
+                          : "bg-gray-100"
+                        : darkMode
+                        ? "bg-gray-900"
+                        : "bg-white"
+                    } hover:bg-gray-200 dark:hover:bg-gray-700 transition`}
+                  >
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">{p.artist_id}</td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">{p.role}</td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">{p.hours_worked}</td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">${p.regular_pay}</td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">${p.overtime_pay}</td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">${p.per_diem}</td>
+                    <td className="py-2 px-4 border-b font-semibold text-indigo-600 dark:text-indigo-400 border-gray-300 dark:border-gray-700">
+                      ${p.total_pay}
+                    </td>
+                    <td className="py-2 px-4 border-b border-gray-300 dark:border-gray-700">
+                      <button
+                        onClick={() => downloadMemo(p.artist_id)}
+                        disabled={downloading === p.artist_id}
+                        className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 disabled:bg-gray-400 transition"
+                      >
+                        {downloading === p.artist_id ? "⏳ Generating..." : "📄 PDF"}
+                      </button>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="8" className="py-6 text-gray-500 text-center italic">
+                    No matching records.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-          {/* 📊 Charts Section */}
-          {filtered.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 mb-12">
-              <h2 className="text-2xl font-bold text-center mb-6 text-indigo-700 dark:text-indigo-400">
-                Payroll Analytics
-              </h2>
+        {/* 📊 Charts Section */}
+        {filtered.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 mb-12">
+            <h2 className="text-2xl font-bold text-center mb-6 text-indigo-700 dark:text-indigo-400">
+              Payroll Analytics
+            </h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {/* 💰 Bar Chart */}
-                <div>
-                  <h3 className="text-center font-semibold mb-2">💰 Total Pay by Role</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={roleData}>
-                      <XAxis dataKey="role" stroke={darkMode ? "#D1D5DB" : "#1F2937"} />
-                      <YAxis stroke={darkMode ? "#D1D5DB" : "#1F2937"} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="totalPay" fill={darkMode ? "#818CF8" : "#4F46E5"} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-10">
+              {/* 💰 Total Pay by Role */}
+              <div>
+                <h3 className="text-center font-semibold mb-2">💰 Total Pay by Role</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={roleData}>
+                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                    <XAxis dataKey="role" stroke={axisColor} />
+                    <YAxis stroke={axisColor} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="totalPay" fill={darkMode ? "#818CF8" : "#4F46E5"} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
 
-                {/* ⏱ Line Chart */}
-                <div>
-                  <h3 className="text-center font-semibold mb-2">⏱ Avg Hours per Role</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={roleData}>
-                      <XAxis dataKey="role" stroke={darkMode ? "#D1D5DB" : "#1F2937"} />
-                      <YAxis stroke={darkMode ? "#D1D5DB" : "#1F2937"} />
-                      <Tooltip />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="avgHours"
-                        stroke={darkMode ? "#34D399" : "#10B981"}
-                        strokeWidth={2}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+              {/* ⏱ Avg Hours per Role */}
+              <div>
+                <h3 className="text-center font-semibold mb-2">⏱ Avg Hours per Role</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={roleData}>
+                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                    <XAxis dataKey="role" stroke={axisColor} />
+                    <YAxis stroke={axisColor} />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="avgHours"
+                      stroke={darkMode ? "#34D399" : "#059669"}
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
 
-                {/* 📊 Pie Chart */}
-                <div>
-                  <h3 className="text-center font-semibold mb-2">📊 Pay Breakdown</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: "Regular Pay", value: roleData.reduce((a, r) => a + r.regularPay, 0) },
-                          { name: "Overtime Pay", value: roleData.reduce((a, r) => a + r.overtimePay, 0) },
-                        ]}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        label
-                      >
-                        {["#4F46E5", "#10B981"].map((color, i) => (
-                          <Cell key={i} fill={color} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+              {/* 📊 Pay Breakdown */}
+              <div>
+                <h3 className="text-center font-semibold mb-2">📊 Pay Breakdown</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "Regular Pay", value: roleData.reduce((a, r) => a + r.regularPay, 0) },
+                        { name: "Overtime Pay", value: roleData.reduce((a, r) => a + r.overtimePay, 0) },
+                      ]}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label
+                    >
+                      {[
+                        darkMode ? "#818CF8" : "#6366F1",
+                        darkMode ? "#10B981" : "#059669",
+                      ].map((color, i) => (
+                        <Cell key={i} fill={color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* 💹 NEW: Total Pay Trend */}
+              <div>
+                <h3 className="text-center font-semibold mb-2">💹 Total Pay Trend (Latest 15)</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={trendData}>
+                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                    <XAxis dataKey="id" stroke={axisColor} />
+                    <YAxis stroke={axisColor} />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="totalPay"
+                      stroke={darkMode ? "#FBBF24" : "#D97706"}
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* 🤖 Chat Assistant */}
-          <ChatAssistant />
+        {/* 🤖 Chat Assistant */}
+        <ChatAssistant />
 
-          {/* ⚡ Footer */}
-          <footer
-            className={`mt-12 py-4 text-center border-t ${
-              darkMode
-                ? "bg-gray-800 border-gray-700 text-gray-300"
-                : "bg-white border-gray-200 text-gray-700"
-            }`}
-          >
-            <p className="text-sm">
-              © {new Date().getFullYear()}{" "}
-              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                Paymaster 2025
-              </span>{" "}
-              | Built with 💼 by{" "}
-              <a
-                href="https://www.linkedin.com/in/vanshshriwastava901"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline hover:text-indigo-700 dark:hover:text-indigo-300 transition"
-              >
-                Vansh Shriwastava
-              </a>
-            </p>
-          </footer>
-        </motion.div>
+        {/* ⚡ Footer */}
+        <footer
+          className={`mt-12 py-4 text-center border-t ${
+            darkMode
+              ? "bg-gray-800 border-gray-700 text-gray-300"
+              : "bg-white border-gray-200 text-gray-700"
+          }`}
+        >
+          <p className="text-sm">
+            © {new Date().getFullYear()}{" "}
+            <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+              Paymaster 2025
+            </span>{" "}
+            | Built with 💼 by{" "}
+            <a
+              href="https://www.linkedin.com/in/vanshshriwastava901"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+            >
+              Vansh Shriwastava
+            </a>
+          </p>
+        </footer>
       </motion.div>
 
-      {/* 🔝 Scroll-to-Top */}
+      {/* 🔝 Scroll Button */}
       {showScroll && (
         <motion.button
           onClick={scrollToTop}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className={`fixed bottom-8 right-8 z-50 p-3 rounded-full shadow-lg transition 
-            ${
-              darkMode
-                ? "bg-indigo-500 hover:bg-indigo-400 text-white"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white"
-            }`}
+          className={`fixed bottom-8 right-8 z-50 p-3 rounded-full shadow-lg transition ${
+            darkMode
+              ? "bg-indigo-500 hover:bg-indigo-400 text-white"
+              : "bg-indigo-600 hover:bg-indigo-700 text-white"
+          }`}
         >
           ⬆️
         </motion.button>
