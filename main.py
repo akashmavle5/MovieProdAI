@@ -1,23 +1,25 @@
 # ============================
-# 🎬 Movie Payroll API + AI Assistant (FINAL PRODUCTION VERSION — FIXED MATCH LOGIC)
+# 🎬 Movie Payroll API + AI Assistant (FINAL HYBRID RAG VERSION)
 # ============================
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import pandas as pd
 import psycopg2, psycopg2.extras
-import io, os, datetime
+import io, os, datetime, re
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
 from urllib.parse import urlparse
+from typing import Optional, List
+from PyPDF2 import PdfReader
 
 # ==========================================
 # 🚀 APP INITIALIZATION
 # ==========================================
-app = FastAPI(title="🎬 Movie Payroll API + AI Assistant")
+app = FastAPI(title="🎬 MovieProdAI — Payroll & AI Assistant")
 
 # ==========================================
 # 🌐 CORS CONFIGURATION
@@ -44,7 +46,7 @@ def home():
     <html><head><title>🎬 MovieProdAI</title></head>
     <body style='font-family: Arial; text-align: center; padding-top: 80px;'>
         <h1>✅ MovieProdAI API is running successfully!</h1>
-        <p>Upload timesheets, fetch payments, or chat with the assistant.</p>
+        <p>Timesheet upload, payroll summary, and AI assistant are active.</p>
     </body></html>
     """
 
@@ -101,24 +103,17 @@ async def upload_timesheet(file: UploadFile = File(...)):
             is_holiday = str(row.get("is_holiday", "FALSE")).strip().upper() == "TRUE"
             is_hazard = str(row.get("is_hazard", "FALSE")).strip().upper() == "TRUE"
 
-            # Try to find a matching artist type (case-insensitive, partial match)
             cur.execute("""
-                SELECT id FROM artist_types 
-                WHERE LOWER(type_name) LIKE %s
-                LIMIT 1;
+                SELECT id FROM artist_types WHERE LOWER(type_name) LIKE %s LIMIT 1;
             """, (f"%{role}%",))
             artist_type = cur.fetchone()
             artist_type_id = artist_type["id"] if artist_type else None
 
-            # ✅ If role not found, create one dynamically
             if not artist_type_id:
                 cur.execute("""
-                    INSERT INTO artist_types (type_name)
-                    VALUES (%s)
-                    RETURNING id;
+                    INSERT INTO artist_types (type_name) VALUES (%s) RETURNING id;
                 """, (role.capitalize(),))
                 artist_type_id = cur.fetchone()["id"]
-                # Default starter rates for new role
                 cur.execute("""
                     INSERT INTO rules (artist_type_id, rule_type, value)
                     VALUES
@@ -128,12 +123,10 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 """, (artist_type_id, artist_type_id, artist_type_id))
                 conn.commit()
 
-            # ✅ Fetch rates safely
             def get_rule(rule_type):
                 cur.execute("""
                     SELECT value FROM rules
-                    WHERE artist_type_id = %s AND rule_type = %s
-                    LIMIT 1;
+                    WHERE artist_type_id = %s AND rule_type = %s LIMIT 1;
                 """, (artist_type_id, rule_type))
                 r = cur.fetchone()
                 return r["value"] if r else None
@@ -142,7 +135,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
             overtime_rate = get_rule("overtime_rate") or 1.5
             per_diem = get_rule("per_diem") or 50
 
-            # ✅ Payroll calculations
             regular_hours = min(hours, 8)
             overtime_hours = max(0, min(hours - 8, 4))
             doubletime_hours = max(0, hours - 12)
@@ -167,8 +159,7 @@ async def upload_timesheet(file: UploadFile = File(...)):
                 artist_id, role.capitalize(), hours,
                 regular_pay + holiday_bonus,
                 overtime_pay + doubletime_pay + hazard_bonus,
-                per_diem,
-                total_pay
+                per_diem, total_pay
             ))
 
             results.append({
@@ -193,7 +184,6 @@ async def upload_timesheet(file: UploadFile = File(...)):
         print("❌ Error:", e)
         return {"error": str(e)}
 
-
 # ==========================================
 # 💰 Fetch Payments Endpoint
 # ==========================================
@@ -206,8 +196,7 @@ def get_payments():
             SELECT id, artist_id, role, hours_worked, regular_pay,
                    overtime_pay, per_diem, total_pay, upload_date
             FROM artist_payment_summary
-            ORDER BY id DESC
-            LIMIT 100;
+            ORDER BY id DESC LIMIT 100;
         """)
         rows = cur.fetchall()
         cur.close()
@@ -227,9 +216,7 @@ def generate_deal_memo(artist_id: int):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT * FROM artist_payment_summary
-            WHERE artist_id = %s
-            ORDER BY upload_date DESC
-            LIMIT 1;
+            WHERE artist_id = %s ORDER BY upload_date DESC LIMIT 1;
         """, (artist_id,))
         record = cur.fetchone()
         cur.close()
@@ -261,7 +248,7 @@ def generate_deal_memo(artist_id: int):
         return {"error": str(e)}
 
 # ==========================================
-# 🤖 AI Assistant
+# 🤖 ChatGPT Assistant (General Payroll Queries)
 # ==========================================
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -299,146 +286,99 @@ async def chat_with_ai(request: ChatRequest):
         return {"error": str(e)}
 
 # ==========================================
-# 📚 Local RAG: PDF Ingestion + Full-Text Q&A (no OpenAI required)
+# 📚 RAG System — Upload & Query Documents
 # ==========================================
-from fastapi import Form
-from fastapi.responses import JSONResponse
-import pdfplumber
-import math
-import re
+def _extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text = "\n".join([page.extract_text() or "" for page in reader.pages])
+    return " ".join(text.split())
 
-def _chunk_text(text: str, max_chars: int = 1400) -> list[str]:
-    """
-    Simple, robust chunker by paragraphs with a guard on chunk size.
-    Keeps chunks reasonably small for display and index quality.
-    """
-    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    chunks, cur = [], ""
-    for p in paras:
-        if len(cur) + len(p) + 1 <= max_chars:
-            cur = (cur + "\n" + p).strip()
-        else:
-            if cur:
-                chunks.append(cur)
-            cur = p
-    if cur:
-        chunks.append(cur)
+def _chunk(text: str, size: int = 1500, overlap: int = 200) -> List[str]:
+    chunks, start = [], 0
+    while start < len(text):
+        end = start + size
+        chunks.append(text[start:end])
+        start = end - overlap
+        if start < 0: start = 0
     return chunks
 
-@app.get("/rag", response_class=HTMLResponse)
-def rag_admin():
-    # Tiny admin console so you don't need frontend changes
-    return """
-    <html>
-      <head><title>RAG Admin</title></head>
-      <body style="font-family:Arial;max-width:800px;margin:auto;padding:30px">
-        <h2>📚 RAG Admin</h2>
-        <h3>Ingest PDF</h3>
-        <form action="/ingest_pdf" method="post" enctype="multipart/form-data">
-          <input type="file" name="file" accept=".pdf" required />
-          <button type="submit">Upload & Index</button>
-        </form>
-        <hr/>
-        <h3>Ask a question</h3>
-        <form action="/rag/ask" method="post">
-          <input type="text" name="question" placeholder="e.g., What is SAG day performer OT?" style="width:70%" required />
-          <input type="number" name="top_k" value="4" min="1" max="10"/>
-          <button type="submit">Ask</button>
-        </form>
-        <p style="color:#666">This uses Postgres full-text search only (no OpenAI).</p>
-      </body>
-    </html>
-    """
-
-@app.post("/ingest_pdf")
-async def ingest_pdf(file: UploadFile = File(...)):
-    """
-    Parse PDF on the server, chunk, and insert into Postgres with tsvector.
-    Idempotent-ish: doesn't dedupe; re-uploading will insert again with same title.
-    """
+@app.post("/rag/upload")
+async def rag_upload(file: UploadFile = File(...), title: Optional[str] = Form(None)):
+    """Upload & index a PDF or TXT into PostgreSQL documents table."""
     try:
+        filename = file.filename or "document"
         raw = await file.read()
-        with pdfplumber.open(io.BytesIO(raw)) as pdf:
-            title = file.filename or "document.pdf"
-            conn = psycopg2.connect(**DB_CONFIG)
-            cur = conn.cursor()
-            total_inserted = 0
+        if filename.lower().endswith(".pdf"):
+            content_text = _extract_text_from_pdf_bytes(raw)
+        elif filename.lower().endswith(".txt"):
+            content_text = raw.decode("utf-8", errors="ignore")
+        else:
+            return {"error": "Unsupported file type. Upload PDF or TXT."}
 
-            for page_idx, page in enumerate(pdf.pages, start=1):
-                text = page.extract_text() or ""
-                text = re.sub(r"[ \t]+\n", "\n", text).strip()
-                if not text:
-                    continue
-                chunks = _chunk_text(text, max_chars=1400)
-                for ci, chunk in enumerate(chunks):
-                    cur.execute("""
-                        INSERT INTO documents (title, page, chunk_index, content)
-                        VALUES (%s, %s, %s, %s)
-                    """, (title, page_idx, ci, chunk))
-                    total_inserted += 1
+        if not content_text.strip():
+            return {"error": "No readable text found in document."}
 
-            conn.commit()
-            cur.close()
-            conn.close()
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO documents (title, content) VALUES (%s, %s) RETURNING id;",
+            (title or filename, content_text)
+        )
+        doc_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        return {"message": f"✅ Ingested {total_inserted} chunks from {file.filename}"}
+        return {"message": f"✅ Indexed '{filename}' successfully!", "doc_id": doc_id}
+
     except Exception as e:
-        print("❌ Ingest error:", e)
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        print("RAG upload error:", e)
+        return {"error": str(e)}
 
 @app.post("/rag/ask")
-async def rag_ask(question: str = Form(...), top_k: int = Form(4)):
-    """
-    Answer a question using only Postgres FTS (ts_rank).
-    Returns a light synthesis plus sources. No OpenAI needed.
-    """
+async def rag_ask(payload: dict):
+    """Ask questions over uploaded docs. Uses FTS + GPT fallback."""
     try:
-        # Convert question to a tsquery-ish string (very simple).
-        # Example: "overtime SAG day performer" -> 'overtime & sag & day & performer'
-        q_terms = [re.sub(r"[^a-z0-9]+","", w.lower()) for w in question.split()]
-        q_terms = [w for w in q_terms if w]
-        if not q_terms:
-            return {"error": "Empty question"}
-        tsquery = " & ".join(q_terms)
+        question = (payload.get("question") or "").strip()
+        if not question:
+            return {"error": "Missing question text."}
 
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(f"""
-            SELECT id, title, page, chunk_index, content,
-                   ts_rank(tsv, to_tsquery('english', %s)) AS rank
+        cur.execute("""
+            SELECT id, title, content,
+                   ts_rank_cd(tsv, plainto_tsquery('english', %s)) AS rank
             FROM documents
-            WHERE tsv @@ to_tsquery('english', %s)
-            ORDER BY rank DESC
-            LIMIT %s;
-        """, (tsquery, tsquery, max(1, min(10, top_k))))
+            WHERE tsv @@ plainto_tsquery('english', %s)
+            ORDER BY rank DESC LIMIT 3;
+        """, (question, question))
         rows = cur.fetchall()
         cur.close()
         conn.close()
 
         if not rows:
-            return {
-                "answer": "I couldn’t find a direct match in the indexed documents.",
-                "sources": []
-            }
+            return {"answer": "No matching content found in uploaded union documents.", "sources": []}
 
-        # Light synthesis (extractive): return a compact stitched answer
-        answer_bits = []
+        # Build a limited context for GPT
+        context_parts = []
         for r in rows:
-            snippet = r["content"].strip()
-            # tight snippet
-            if len(snippet) > 600:
-                snippet = snippet[:580] + "…"
-            answer_bits.append(f"- {snippet}")
+            snippet = r["content"][:1200]
+            context_parts.append(f"### Source: {r['title']} (id={r['id']})\n{snippet}")
+        context = "\n\n".join(context_parts)
 
-        stitched = "Here’s what I found:\n" + "\n".join(answer_bits)
+        prompt_text = f"""
+You are a union payroll assistant. Use the following context from official union documents.
+If you don't find an answer, say "Not found in current policy documents."
 
-        sources = [
-            {"title": r["title"], "page": r["page"], "chunk_index": r["chunk_index"], "rank": float(r["rank"])}
-            for r in rows
-        ]
+Question: {question}
 
-        return {"answer": stitched, "sources": sources}
+Context:
+{context}
+"""
+        response = llm.invoke(prompt_text)
+        final_answer = getattr(response, "content", str(response))
+        return {"answer": final_answer, "sources": rows}
 
     except Exception as e:
-        print("❌ RAG ask error:", e)
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        print("RAG ask error:", e)
+        return {"error": str(e)}

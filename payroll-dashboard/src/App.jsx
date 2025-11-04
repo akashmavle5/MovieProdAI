@@ -17,8 +17,10 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 import ChatAssistant from "./ChatAssistant";
+import DocumentChat from "./DocumentChat";
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 
-function App() {
+function Dashboard() {
   const [payments, setPayments] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [file, setFile] = useState(null);
@@ -137,7 +139,7 @@ function App() {
     avgHours: (r.totalHours / r.count).toFixed(1),
   }));
 
-  // 🆕 Total Pay Trend (sorted by upload order)
+  // 🆕 Total Pay Trend
   const trendData = [...filtered]
     .reverse()
     .slice(0, 15)
@@ -177,15 +179,23 @@ function App() {
         <h1 className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
           🎬 Paymaster 2025
         </h1>
-        <button
-          onClick={toggleTheme}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition"
-        >
-          {darkMode ? "☀️ Light Mode" : "🌙 Dark Mode"}
-        </button>
+        <div className="flex items-center gap-4">
+          <Link
+            to="/documents"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition"
+          >
+            📚 RAG Chat
+          </Link>
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition"
+          >
+            {darkMode ? "☀️ Light Mode" : "🌙 Dark Mode"}
+          </button>
+        </div>
       </motion.nav>
 
-      {/* 🧾 Dashboard */}
+      {/* Main Dashboard */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -196,7 +206,7 @@ function App() {
           Payroll Dashboard
         </h2>
 
-        {/* 📤 Upload Section */}
+        {/* CSV Upload */}
         <form
           onSubmit={handleUpload}
           className="flex justify-center items-center gap-4 mb-8"
@@ -289,89 +299,28 @@ function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-10">
               {/* 💰 Total Pay by Role */}
-              <div>
-                <h3 className="text-center font-semibold mb-2">💰 Total Pay by Role</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={roleData}>
-                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
-                    <XAxis dataKey="role" stroke={axisColor} />
-                    <YAxis stroke={axisColor} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="totalPay" fill={darkMode ? "#818CF8" : "#4F46E5"} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={roleData}>
+                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                  <XAxis dataKey="role" stroke={axisColor} />
+                  <YAxis stroke={axisColor} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="totalPay" fill={darkMode ? "#818CF8" : "#4F46E5"} />
+                </BarChart>
+              </ResponsiveContainer>
 
-              {/* ⏱ Avg Hours per Role */}
-              <div>
-                <h3 className="text-center font-semibold mb-2">⏱ Avg Hours per Role</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={roleData}>
-                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
-                    <XAxis dataKey="role" stroke={axisColor} />
-                    <YAxis stroke={axisColor} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="avgHours"
-                      stroke={darkMode ? "#34D399" : "#059669"}
-                      strokeWidth={2}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* 📊 Pay Breakdown */}
-              <div>
-                <h3 className="text-center font-semibold mb-2">📊 Pay Breakdown</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={[
-                        { name: "Regular Pay", value: roleData.reduce((a, r) => a + r.regularPay, 0) },
-                        { name: "Overtime Pay", value: roleData.reduce((a, r) => a + r.overtimePay, 0) },
-                      ]}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label
-                    >
-                      {[
-                        darkMode ? "#818CF8" : "#6366F1",
-                        darkMode ? "#10B981" : "#059669",
-                      ].map((color, i) => (
-                        <Cell key={i} fill={color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* 💹 NEW: Total Pay Trend */}
-              <div>
-                <h3 className="text-center font-semibold mb-2">💹 Total Pay Trend (Latest 15)</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={trendData}>
-                    <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
-                    <XAxis dataKey="id" stroke={axisColor} />
-                    <YAxis stroke={axisColor} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="totalPay"
-                      stroke={darkMode ? "#FBBF24" : "#D97706"}
-                      strokeWidth={2}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              {/* 💹 Total Pay Trend */}
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={trendData}>
+                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                  <XAxis dataKey="id" stroke={axisColor} />
+                  <YAxis stroke={axisColor} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="totalPay" stroke={darkMode ? "#FBBF24" : "#D97706"} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
         )}
@@ -392,7 +341,7 @@ function App() {
             <span className="font-semibold text-indigo-600 dark:text-indigo-400">
               Paymaster 2025
             </span>{" "}
-            | Built with 💼 by{" "}
+            | Built by{" "}
             <a
               href="https://www.linkedin.com/in/vanshshriwastava901"
               target="_blank"
@@ -422,4 +371,14 @@ function App() {
   );
 }
 
-export default App;
+// 🧩 App Router (Dashboard + RAG Chat)
+export default function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/documents" element={<DocumentChat />} />
+      </Routes>
+    </Router>
+  );
+}

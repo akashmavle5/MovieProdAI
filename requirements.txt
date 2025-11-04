@@ -15,3 +15,4 @@ pypdf
 python-docx
 pdfplumber==0.11.4
 rank-bm25==0.2.2
+PyPDF2==3.0.1
